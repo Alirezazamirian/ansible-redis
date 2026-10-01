@@ -1,0 +1,27 @@
+---
+# All installation process go here
+
+- name: Install Redis on Debian-based OS
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+    use: apt
+  when: ansible_os_family == "Debian"
+  loop:
+    - redis-server
+    - redis-sentinel
+    - redis-tools
+    - redis
+  tags: redis_install
+
+- name: Install Redis on RedHat-based OS
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: present
+    use: dnf
+  when: ansible_os_family == "RedHat"
+  loop:
+    - redis-server
+    - redis-tools
+    - redis
+  tags: redis_install

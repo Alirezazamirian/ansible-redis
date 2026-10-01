@@ -1,0 +1,129 @@
+---
+
+- name: Remove all files in /etc/yum.repos.d/ (Redhat)
+  when: ansible_os_family == "RedHat"
+  run_once: true
+  delegate_to: localhost
+  # vars:
+  #   - ansible_user: "{{ ansible_user }}"
+  #   - ansible_ssh_pass: "{{ ansible_ssh_pass }}"
+  #   - ansible_ssh_port: "{{ ansible_ssh_port }}"
+  #   - ansible_become_user: "{{ ansible_become_user }}"
+  #   - ansible_become_password: "{{ ansible_become_password }}"
+  block:
+    - name: Find all files in /etc/yum.repos.d/
+      ansible.builtin.find:
+        paths: /etc/yum.repos.d/
+        patterns: '*'
+        file_type: file
+      register: remove_former_repos
+
+    - name: Remove found files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ remove_former_repos.files }}"
+
+- name: Remove all files in /etc/sources.list.d/ (Debian)
+  when: ansible_os_family == "Debian"
+  run_once: true
+  delegate_to: localhost
+  # vars:
+  #   - ansible_user: "{{ ansible_user }}"
+  #   - ansible_ssh_pass: "{{ ansible_ssh_pass }}"
+  #   - ansible_ssh_port: "{{ ansible_ssh_port }}"
+  #   - ansible_become_user: "{{ ansible_become_user }}"
+  #   - ansible_become_password: "{{ ansible_become_password }}"
+  block:
+    - name: Find all files in /etc/sources.list.d/
+      ansible.builtin.find:
+        paths: /etc/sources.list.d/
+        patterns: '*'
+        file_type: file
+      register: remove_former_repos
+
+    - name: Remove found files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ remove_former_repos.files }}"
+
+- name: "Ensure dnf.conf are set correctly and add local repos (Redhat)"
+  delegate_to: localhost
+  run_once: true
+  when: ansible_os_family == "RedHat"
+  # vars:
+  #   - ansible_user: "{{ ansible_user }}"
+  #   - ansible_ssh_pass: "{{ ansible_ssh_pass }}"
+  #   - ansible_ssh_port: "{{ ansible_ssh_port }}"
+  #   - ansible_become_user: "{{ ansible_become_user }}"
+  #   - ansible_become_password: "{{ ansible_become_password }}"
+  block:
+    - name: Refactor the dnf.conf
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/dnf.conf
+        regexp: '^gpgcheck =|^#gpgcheck ='
+        line: "gpgcheck=0"
+
+    - name: Refactor the dnf.conf
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/dnf.conf
+        regexp: '^repo_gpgcheck =|^#repo_gpgcheck ='
+        line: "repo_gpgcheck=0"
+
+    - name: Render local yum repositories templates
+      ansible.builtin.template:
+        src: "{{ item }}"
+        dest: "/etc/yum.repos.d/{{ item | basename | splitext | first }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ query('ansible.builtin.fileglob', 'templates/yum/local/*.j2') }}"
+
+    - name: Update dnf cache to recognize local repositories
+      ansible.builtin.dnf:
+        update_cache: true
+        use_backend: dnf
+
+- name: Ensure apt config disables gpg checks and add local repos (Debian)
+  when: ansible_os_family == "Debian"
+  delegate_to: localhost
+  run_once: true
+  # vars:
+  #   - ansible_user: "{{ ansible_user }}"
+  #   - ansible_ssh_pass: "{{ ansible_ssh_pass }}"
+  #   - ansible_ssh_port: "{{ ansible_ssh_port }}"
+  #   - ansible_become_user: "{{ ansible_become_user }}"
+  #   - ansible_become_password: "{{ ansible_become_password }}"
+  block:
+    - name: Create apt config directory if not exists
+      ansible.builtin.file:
+        path: /etc/apt/apt.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Disable GPG checking for repos
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/99disable-gpg-check
+        content: |
+          APT::Get::AllowUnauthenticated "true";
+          Acquire::AllowInsecureRepositories "true";
+          Acquire::AllowDowngradeToInsecureRepositories "true";
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Render local apt repo templates
+      ansible.builtin.template:
+        src: "{{ item }}"
+        dest: "/etc/apt/sources.list.d/{{ item | basename | splitext | first }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ query('ansible.builtin.fileglob', 'templates/apt/local/*.j2') }}"
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true

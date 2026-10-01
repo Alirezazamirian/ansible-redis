@@ -1,0 +1,20 @@
+[localrepo-appstream]
+name=localrepo-appstream
+priority={{ repos_appstream.priority }}
+gpgcheck=0
+enabled={{ 1 if repos_appstream.enable else 0 }}
+{% if repos_info.mirror.tls_enabled and repos_info.mirror.auth_enabled %}
+# Using HTTPS with TLS and Authentication
+baseurl=https://{{ repos_info.mirror.username }}:{{ repos_info.mirror.password | replace('@', '%40') }}@{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.appstream }}
+sslverify=False
+{% elif repos_info.mirror.auth_enabled %}
+# Using HTTP with Authentication (no TLS)
+baseurl=http://{{ repos_info.mirror.username }}:{{ repos_info.mirror.password | replace('@', '%40') }}@{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.appstream }}
+{% elif repos_info.mirror.tls_enabled %}
+# Using HTTPS with TLS, but no Authentication
+baseurl=https://{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.appstream }}
+sslverify=False
+{% else %}
+# Using HTTP, no TLS, no Authentication
+baseurl=http://{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.appstream }}
+{% endif %}

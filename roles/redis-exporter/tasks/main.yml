@@ -1,0 +1,23 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for redis-exporter
+
+- name: Add firewall role
+  ansible.builtin.include_role:
+    name: firewall
+  vars:
+    firewall_port:
+      - port: "{{ redis_exporter_listen_port }}"
+        proto: tcp
+
+- name: Import preflight pre-configuration on Redis cluster
+  ansible.builtin.import_tasks:
+    file: "preflight.yml"
+
+- name: Download and Install redis-exporter tar pkg
+  ansible.builtin.import_tasks:
+    file: "install.yml"
+
+- name: Import config action of Redis cluster
+  ansible.builtin.import_tasks:
+    file: "config.yml"

@@ -1,0 +1,13 @@
+---
+######################################################################## Beginning of Ansible related configuration
+ansible_host: "192.168.20.66"
+ansible_user: "{{ vm_conn_info.common.username }}"
+ansible_connection: "ssh"
+ansible_ssh_pass: "{{ vm_conn_info.common.password }}"
+ansible_ssh_port: 5119
+ansible_become_user: "root"
+ansible_become_method: "sudo"
+ansible_become_password: "{{ vm_conn_info.common.password }}"
+######################################################################## End of Ansible related configuration
+
+is_master: false

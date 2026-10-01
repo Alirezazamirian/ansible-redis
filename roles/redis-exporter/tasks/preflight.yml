@@ -1,0 +1,26 @@
+---
+
+- name: "Gather system user and group facts"
+  ansible.builtin.getent:
+    database: "{{ item }}"
+  loop:
+    - passwd
+    - group
+
+- name: "Create system group {{ redis_exporter_system_group }}"
+  ansible.builtin.group:
+    name: "{{ redis_exporter_system_group }}"
+    system: true
+    state: present
+  when: redis_exporter_system_group not in ansible_facts.getent_group
+
+- name: "Create system user {{ redis_exporter_system_user }}"
+  ansible.builtin.user:
+    name: "{{ redis_exporter_system_user }}"
+    system: true
+    shell: "/usr/sbin/nologin"
+    group: "{{ redis_exporter_system_user }}"
+    groups:
+      - "{{ redis_exporter_system_user }}"
+      - "{{ redis_group }}"
+    create_home: false

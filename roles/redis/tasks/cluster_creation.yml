@@ -1,0 +1,39 @@
+---
+
+- name: Set fact for redis_cluster hosts for run_once iteration mode
+  ansible.builtin.set_fact:
+    redis_cluster_nodes: >-
+      {{
+        groups['redis_cluster']
+        | map('extract', hostvars, 'ansible_host')
+        | map('regex_replace', '$', ':' ~ redis_conf_options.tls_listen_port if redis_tls_enable else redis_listen_port)
+        | join(' ')
+      }}
+  when: groups['redis_cluster'] | length > 1
+
+- name: Set fact for redis_cluster hosts for run_once iteration mode
+  ansible.builtin.set_fact:
+    redis_cluster_creation_cmd: >-
+      redis-cli
+      --cluster create
+      {{ redis_cluster_nodes }}
+      --cluster-replicas {{ redis_cluster_each_master_replicas }}
+      --tls
+      --cacert {{ redis_cluster_tls_ca_cert }}
+      --cert {{ redis_cluster_tls_controller_cert }}
+      --key {{ redis_cluster_tls_controller_key }}
+      -h {{ hostvars[groups['redis_cluster'][0]].ansible_host }}
+      -p {{ redis_conf_options.tls_listen_port if redis_tls_enable else redis_listen_port }}
+      --user {{ redis_security_init_user_info.name }}
+      -a {{ redis_security_init_user_info.pass | quote }}
+  when: groups['redis_cluster'] | length > 1
+
+- name: Apply redis-cli cmd to enable sharded cluster mode via command-line
+  ansible.builtin.command:
+    cmd: "{{ redis_cluster_creation_cmd }}"
+  delegate_to: localhost
+  become: false
+  ignore_errors: false
+  connection: local
+  no_log: true
+  run_once: true

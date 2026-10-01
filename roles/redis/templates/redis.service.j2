@@ -1,0 +1,33 @@
+[Unit]
+Description=Advanced key-value store
+After=network.target
+Documentation=http://redis.io/documentation
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/redis-server {{ redis_config_dir }}/redis.conf
+TimeoutStopSec=0
+Restart=always
+User={{ redis_user }}
+Group={{ redis_group }}
+RuntimeDirectory={{ redis_user }}
+RuntimeDirectoryMode=2755
+
+UMask=007
+PrivateTmp=yes
+LimitNOFILE=65535
+PrivateDevices=yes
+ProtectHome=yes
+ReadOnlyDirectories=/
+ReadWriteDirectories=-{{ redis_working_dir }}
+ReadWriteDirectories=-{{ redis_log_dir }}
+ReadWriteDirectories=-/run/redis
+
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_SYS_RESOURCE
+ProtectSystem=true
+ReadWriteDirectories=-{{ redis_config_dir }}
+
+[Install]
+WantedBy=multi-user.target
+Alias=redis.service

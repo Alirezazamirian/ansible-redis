@@ -1,0 +1,18 @@
+---
+
+- name: Create cache for Ansible controller node(localhost!)
+  hosts: localhost
+  any_errors_fatal: true
+  gather_facts: true
+
+- name: Create cache for all hosts to make it persistent across runs
+  hosts: all
+  become: true
+  become_method: ansible.builtin.sudo
+  any_errors_fatal: true
+  gather_facts: true
+  tasks:
+    - name: Make each inventory var as cacheable facts
+      ansible.builtin.set_fact:
+        cacheable: true
+        

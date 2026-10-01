@@ -1,0 +1,20 @@
+[localrepo-confluent]
+name=localrepo-confluent-kafka
+priority={{ repos_confluent.priority }}
+gpgcheck=0
+enabled={{ 1 if repos_confluent.enable else 0 }}
+{% if repos_info.mirror.tls_enabled and repos_info.mirror.auth_enabled %}
+# Using HTTPS with TLS and Authentication
+baseurl=https://{{ repos_info.mirror.username }}:{{ repos_info.mirror.password | replace('@', '%40') }}@{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.confluent }}
+sslverify=False
+{% elif repos_info.mirror.auth_enabled %}
+# Using HTTP with Authentication (no TLS)
+baseurl=http://{{ repos_info.mirror.username }}:{{ repos_info.mirror.password | replace('@', '%40') }}@{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.confluent }}
+{% elif repos_info.mirror.tls_enabled %}
+# Using HTTPS with TLS, but no Authentication
+baseurl=https://{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.confluent }}
+sslverify=False
+{% else %}
+# Using HTTP, no TLS, no Authentication
+baseurl=http://{{ repos_info.mirror.address }}/{{ local_repo_base_addrs.confluent }}
+{% endif %}

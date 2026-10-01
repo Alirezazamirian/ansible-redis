@@ -1,0 +1,9 @@
+---
+######################################################################## Beginning of Ansible related configuration
+ansible_user: "{{ vm_conn_info.controller.username }}"
+ansible_connection: "local"
+ansible_ssh_pass: "{{ vm_conn_info.controller.password }}"
+ansible_become_user: "root"
+ansible_become_method: "sudo"
+ansible_become_password: "{{ vm_conn_info.controller.password }}"
+######################################################################## End of Ansible related configuration

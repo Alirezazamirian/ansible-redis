@@ -1,0 +1,42 @@
+######################################################################## Beginning of Global Repos vars
+
+# Password with '@' is URL-encoded as '%40' | Be aware to not use special chars except @. denied chars: #, &, :, !, %
+repos_info:
+  mirror:
+    tls_enabled: false
+    auth_enabled: false
+    add_localhost: false
+    address: "{{ vm_conn_info.servers_ip.repo.mirror }}"
+    username: "{{ production_info.repos.username }}"
+    password: "{{ production_info.repos.password }}"
+  ftp:
+    tls_enabled: true
+    auth_enabled: true
+    address: "{{ vm_conn_info.servers_ip.repo.ftp }}"
+    username: "{{ production_info.repos.username }}"
+    password: "{{ production_info.repos.password }}"
+
+repos_ftp_repo_url: "{{ 'https' if repos_info.ftp.tls_enabled | bool else 'http' }}://{{ repos_info.ftp.address }}/ftp"
+
+######################################################################## End of Global Repos vars
+
+######################################################################## Beginning of Global Shared vars
+
+redis_tls_enable: true
+redis_cluster_tls_enable: true
+redis_security_acl_enable: true
+redis_master_auth_enable: true
+redis_security_use_hash_password: true
+redis_listen_port: 6379
+redis_tls_listen_port: 6380
+redis_cluster_each_master_replicas: 1
+
+local_repo_base_addrs:
+  redis: "rocky-linux/{{ ansible_distribution_major_version }}/redis"
+  extras: "rocky-linux/{{ ansible_distribution_major_version }}/extras"
+  epel: "rocky-linux/{{ ansible_distribution_major_version }}/epel"
+  crb: "rocky-linux/{{ ansible_distribution_major_version }}/crb"
+  baseos: "rocky-linux/{{ ansible_distribution_major_version }}/baseos"
+  appstream: "rocky-linux/{{ ansible_distribution_major_version }}/appstream"
+
+######################################################################## End of Global Shared vars

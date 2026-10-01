@@ -1,0 +1,391 @@
+---
+
+######################################################################## Beginning of Redis Cluster vars
+
+redis_conf_templates:
+  - src: redis.conf.j2
+    dest: "{{ redis_config_dir }}/redis.conf"
+
+redis_systemd_service_templates: >-
+  {{
+    ['redis.service.j2', 'redis-sentinel.service.j2']
+    if redis_sentinel_enable | bool
+    else
+    ['redis.service.j2']
+  }}
+
+redis_working_dir: "/var/lib/redis"
+redis_config_dir: "/etc/redis"
+redis_log_dir: "/var/log/redis"
+redis_cert_dir: "{{ redis_config_dir }}/certs"
+redis_user: "redis"
+redis_group: "redis"
+redis_startup_supervisor: "systemd" # Options: 'systemd', 'auto', 'no', 'upstart'
+redis_pid_path: "/var/run/redis/redis.pid"
+redis_unixsocket_path: "/run/redis/redis.sock"
+
+redis_tls_server_files_basename_path: "{{ redis_cert_dir }}/server"
+redis_tls_client_files_basename_path: "{{ redis_tls_server_files_basename_path }}"
+redis_tls_root_ca_path: "{{ redis_cert_dir }}/root.crt"
+redis_tls_server_privkey_pass: "{{ production_info.redis.server.privkey.password }}"
+redis_tls_root_privkey_pass: "{{ production_info.redis.root.privkey.password }}"
+redis_tls_client_privkey_pass: "{{ production_info.redis.client.privkey.password }}"
+
+redis_conf_options:
+  client_idle_timeout: 0
+  client_tcp_ack_keepalive: 300
+  tls_listen_port: "{{ redis_tls_listen_port }}"
+  log_level: "notice"
+  log_file: "{{ redis_log_dir }}/stdout.log"
+  syslog_enable: "yes"
+  syslog_ident: "redis-log"
+  database_count: 1
+  snapshot_db_params: ["3600 1", "600 100", "60 1000"] # First param goes for seconds, and second one goes for changes
+  master_auth_user: "replication"
+  master_auth_userpass: "{{ production_info.redis.replica.master_auth_pass }}"
+  replica_serve_stale_data: true
+  replica_is_readonly: true
+  replica_diskless_sync: true
+  replica_diskless_sync_delay: 5 # in second
+  replica_diskless_sync_delay_max: 10 # in second
+  replica_diskless_load: "on-empty-db"
+  replica_ping_period: 3 # in second
+  replica_timeout: 5 # in second
+  replica_disable_tcp_nodelay: false
+  replica_backlog_size: "100mb"
+  replica_backlog_ttl: 600 # in second
+  replica_full_sync_buffer_limit: "0"
+  replica_priority: "{{ ansible_ens33.ipv4.address.split('.')[-1] }}"
+  propagation_error_behavior: "panic" # options are 'panic', 'panic-on-replicas', 'ignore'
+  replica_min_quantity_to_accept_writes: 1
+  replica_max_lag_to_tag_unhealthy: 2 # in second
+  tracking_table_max_keys: 1000000 # unit keys that are cached until the specified key is changed
+  security_acl_log_max_len: 128
+  security_new_users_pubsub_mode: allchannels # can be one of 'allchannels' or 'resetchannels'
+  clients_max_connections: 20000
+  memory_max_usage: "{{ (ansible_memtotal_mb * 0.80 * 1024 * 1024) | int }}"
+  memory_eviction_policy: "volatile-lru"
+  memory_sample_key_count: 10 # Higher values represent more precision but more CPU consumption. min '2' & max '64'
+  memory_eviction_process: 10 # 0 = minimum latency, 10 = default, 100 = process without regard to latency
+  memory_ignore_eviction_for_replicas: true
+  memory_active_expire_keys_effort: 2 # min '1' & max '10' which represents the effort that CPU does on RAM to hold a footprint of expired keys after removal.
+  lazyfree_mem_eviction: true       # true represents UNLINK(non-blocking deletion) & false represents DEL(blocking deletion) after a client's cmd with O(1) or O(log_N)
+  lazyfree_mem_expire: true         # true represents UNLINK(non-blocking deletion) & false represents DEL(blocking deletion) after a client's cmd with O(1) or O(log_N)
+  lazyfree_mem_server_del: false    # true represents UNLINK(non-blocking deletion) & false represents DEL(blocking deletion) after a client's cmd with O(1) or O(log_N)
+  lazyfree_mem_replica_flush: true  # true represents UNLINK(non-blocking deletion) & false represents DEL(blocking deletion) after a client's cmd with O(1) or O(log_N)
+  lazyfree_mem_client_cmd_flush: true
+  lazyfree_mem_client_cmd_del: false
+  thread_io_count: "{{ (ansible_processor_nproc - 1) | int }}"
+  kernel_oom_score_adjusment: "no" # Options: no, yes, absolute, relative
+  kernel_oom_score_adjusment_values: "0 200 800"
+  kernel_thp_disable: true
+  aof_enable: true
+  aof_filename_pattern: "snapshot.aof"
+  aof_parent_dirname: "append-only"
+  aof_append_fsync: "everysec" # Options: everysec, always, no
+  aof_no_append_fsync_on_rewrite: false
+  aof_auto_rewrite_trigger_percentage: 100 # Set to 0 to disable the auto-rewrite approach
+  aof_auto_rewrite_trigger_min_size: "64mb"
+  aof_load_truncated: true # 'true' means the AOF file will be loaded to mem whenver it founds, and 'no' as viceversa
+  aof_load_corrupt_truncated: false
+  aof_load_corrupt_truncated_tail_max_size: 4096
+  aof_use_rdb_preamble: true # Append-only mode on RDB is more efficient than AOF
+  aof_timestamp_enabled: false
+  shutdown_timeout: 5
+  shutdown_on_sigterm: "default" # Options: save, nosave, now, force, default
+  shutdown_on_sigint: "default" # Options: save, nosave, now, force, default
+  commands_longblocking_threshold: 1000 # in mili-seconds
+  slowlog_log_slower_than: 10000 # in ms
+  slowlog_max_len: 128
+  slowlog_entry_max_argc: 32 
+  slowlog_entry_max_string_len: 128
+  latency_mon_treshold: 10 # in ms
+  latency_tracking_enabled: true
+  latency_tracking_info_percentiles: "50 99 99.9"
+  notify_keyspace_events: ""
+  hash_max_packlist_entries: 1024
+  hash_max_packlist_value: 64
+  list_max_listpack_size: -2
+  list_compress_depth: 0
+  set_max_intset_entries: 512
+  set_max_listpack_entries: 128
+  set_max_listpack_value: 64
+  zset_max_listpack_entries: 128
+  zset_max_listpack_value: 64
+  hll_sparse_max_bytes: 3000
+  stream_node_max_bytes: 4096
+  stream_node_max_entries: 100
+  stream_idmp_duration: 100
+  stream_idmp_maxsize: 100
+  array_slice_size: 4096
+  array_sparse_kmax: 10
+  array_sparse_kmin: 5
+  lfu_log_factor: 10
+  lfu_decay_time: 1
+  dynamic_hz: true
+  hz: 10
+  activerehashing: true
+  client_output_buffer_limit:
+    normal: "0 0 0"
+    replica: "512mb 128mb 60"
+    pubsub: "64mb 16mb 60"
+  client_query_buffer_limit: "1gb"
+  aof_rewrite_incremental_fsync: true
+  rdb_save_incremental_fsync: true
+  lookahead: 16
+  maxmemory_clients: "5%"
+  proto_max_bulk_len: "512mb"
+  max_new_conn_per_cycle: 10
+  max_new_tls_conn_per_cycle: 5
+  activedefrag: false
+  activedefrag_options:
+    ignore_bytes: "100mb"
+    threshold_lower: 10
+    threshold_upper: 100
+    cycle_min: 1
+    cycle_max: 25
+    max_scan_fields: 1000
+  jemalloc_bg_thread: true
+  key_memory_histograms: true
+  redis_cpu_affinity:
+    server: >-
+      {{ ((redis_conf_options.thread_io_count * 0.5) | round(1, 'common') | int) }}
+    bio: >-
+      {{ ((redis_conf_options.thread_io_count * 0.125) | round(1, 'common') | int) }}
+    aof_rewrite: >-
+      {{ ((redis_conf_options.thread_io_count * 0.25) | round(1, 'common') | int) }}
+    bgsave: >-
+      {{ ((redis_conf_options.thread_io_count * 0.125) | round(1, 'floor') | int) }}
+
+redis_cluster_conf_options:
+  cluster_tls_enable: "{{ redis_cluster_tls_enable }}"
+  cluster_config_file: "{{ redis_working_dir }}/node.conf"
+  cluster_timeout_failure: 10000 # in mili-second
+  cluster_listen_port: 16379
+  cluster_tls_listen_port: 16380
+  cluster_replica_validity_fact: 0 # zero defined as highly available: replica node will be master asap without waiting for data consistency in last interaction with master
+  cluster_allow_replica_migration: true
+  cluster_require_full_coverage: false # true: when some slots are missed on a cluster, then reject the entire slots connections | false: viceversa(existing slots would be handled partially)
+  cluster_replica_no_failover: false # true: Failover the master after master failure | false: Do not failover the master
+  cluster_allow_read_when_down: true
+  cluster_allow_pubsubshard_when_down: true
+  cluster_bus_link_sendbug_limit: "1gb"
+  cluster_compatib_sample_ratio: 10 # min 0, max 100
+  cluster_slots_stats_enabled: "yes" # can be one of the 'cpu', 'net', 'mem', 'yes'(enabled all stats), 'no'(disable all stats)
+  cluster_slot_migration_write_pause_timeout: 10000 # in ms
+  cluster_slot_migration_handoff_max_lag_bytes: "1mb"
+  cluster_announce_hostname: "{{ inventory_hostname | replace('_', '-') }}"
+  cluster_announce_human_nodename: "{{ inventory_hostname | replace('_', '-') }}"
+  cluster_preferred_endpoint_type: "ip" # can be one of: ip, hostname, unknown-endpoint
+  cluster_migration_barrier: 1
+  cluster_announce_ip: "{{ ansible_ens33.ipv4.address }}"
+
+
+redis_security_acl_file_path: "{{ redis_config_dir }}/users.acl"
+redis_security_users_acl_conf:
+  - {name: "{{ production_info.redis.client.username }}", pass: "{{ production_info.redis.client.password }}", enable: true, key_pattern: "~redis:*", commands: "+@write +@read -@admin"}
+  - {name: "{{ production_info.redis.client.admin.username }}", pass: "{{ production_info.redis.client.admin.password }}", enable: true, key_pattern: "~redis:*", commands: "+@admin"}
+
+redis_security_init_user_info:
+  name: "init"
+  pass: "{{ production_info.redis.client.admin.password }}"
+  enable: true
+  key_pattern: null
+  commands: "+@all"
+
+redis_security_rename_commands:
+  - command: CONFIG
+    rename_to: "CONFIG_SECURE"
+  - command: DEBUG
+    rename_to: "DEBUG_SECURE"
+
+######################################################################## End of Redis Cluster vars
+
+######################################################################## Beginning of Sentinel configuration
+
+redis_sentinel_enable: false
+redis_sentinel_tls_enable: false
+redis_sentinel_client_auth_enable: false
+redis_sentinel_server_auth_enable: false
+
+redis_sentinel_conf_templates:
+  - src: sentinel.conf.j2
+    dest: "{{ redis_sentinel_config_dir }}/sentinel.conf"
+
+redis_sentinel_config_dir: "{{ redis_config_dir }}/sentinel"
+redis_sentinel_config_file: "{{ redis_sentinel_config_dir }}/sentinel.conf"
+
+redis_sentinel_cert_dir: "{{ redis_sentinel_config_dir }}/certs"
+redis_sentinel_tls_cert_file_path: "{{ redis_sentinel_cert_dir }}/server.crt"
+redis_sentinel_tls_key_file_path: "{{ redis_sentinel_cert_dir }}/server.key"
+redis_sentinel_tls_ca_file_path: "{{ redis_sentinel_cert_dir }}/server.ca"
+redis_sentinel_tls_csr_file_path: "{{ redis_sentinel_cert_dir }}/server.csr"
+redis_sentinel_tls_key_file_passphrase: "{{ production_info.redis.sentinel.privkey.password }}"
+redis_sentinel_listen_port: 26379
+
+redis_sentinel_conf_options:
+  client_idle_timeout: 0
+  client_tcp_ack_keepalive: 300
+  tls_listen_port: 26380
+  log_level: "notice"
+  log_file: "{{ redis_log_dir }}/sentinel.log"
+  syslog_enable: "yes"
+  syslog_ident: "redis-sentinel"
+  database_count: 1
+  snapshot_db_params: ["3600 1", "600 100", "60 1000"]
+  be_down_after_ms: 500
+  client_auth_username: "{{ production_info.redis.sentinel.client_auth.username }}"
+  client_auth_pass: "{{ production_info.redis.sentinel.client_auth.password }}"
+  server_auth_username: "{{ production_info.redis.sentinel.server_auth.username }}"
+  server_auth_pass: "{{ production_info.redis.sentinel.server_auth.password }}"
+  failover_timeout_ms: 30000
+  notification_script: "{{ redis_working_dir }}/sentinel-notify.sh"
+  client_reconfig_script: "{{ redis_working_dir }}/sentinel-reconfig.sh"
+  master_reboot_down_after_ms: 0
+
+######################################################################## End of Sentinel configuration
+
+######################################################################## Beginning of Redis Exporter configuration
+
+redis_exporter_bin_path: "/usr/local/bin/redis_exporter"
+redis_exporter_version: "1.86.0"
+redis_exporter_os_arch: "amd64"
+redis_exporter_tar_package: "redis_exporter-v{{ redis_exporter_version }}.linux-{{ redis_exporter_os_arch }}.tar.gz"
+redis_exporter_unarchived_package_dir: >-
+  {{ redis_exporter_tar_package | regex_replace('\.tar\.gz$', '') }}
+redis_exporter_repo_url: "{{ repos_ftp_repo_url }}/metric-exporters/{{ redis_exporter_tar_package }}"
+redis_exporter_tar_destination: "/opt/{{ redis_exporter_tar_package }}"
+redis_exporter_unarchived_destination: "/tmp"
+redis_exporter_system_user: "redisex"
+redis_exporter_system_group: "redisex"
+redis_exporter_listen_port: 9121
+redis_exporter_log_dir: "/var/log/redis_exporter"
+redis_exporter_env_path: "/etc/default/redis_exporter"
+redis_exporter_conf_dir_path: "/etc/redis-exporter"
+redis_exporter_use_environment_file: true
+redis_exporter_use_tls: true
+redis_exporter_use_basic_http_auth: true
+redis_exporter_use_hash_pass: true
+redis_exporter_debug_mode: true
+redis_exporter_tls_client_certs_basename: "client"
+redis_exporter_tls_server_certs_basename: "server"
+redis_exporter_tls_dir_path: "{{ redis_exporter_conf_dir_path }}/certs"
+redis_exporter_tls_root_ca_path: "{{ redis_exporter_tls_dir_path }}/root.crt"
+redis_exporter_tls_client_key_file_path: "{{ redis_exporter_tls_dir_path }}/{{ redis_exporter_tls_client_certs_basename }}.key"
+redis_exporter_tls_client_cert_file_path: "{{ redis_exporter_tls_dir_path }}/{{ redis_exporter_tls_client_certs_basename }}.crt"
+redis_exporter_tls_client_csr_file_path: "{{ redis_exporter_tls_dir_path }}/{{ redis_exporter_tls_client_certs_basename }}.csr"
+redis_exporter_tls_client_ca_file_path: "{{ redis_exporter_tls_root_ca_path }}"
+redis_exporter_tls_server_key_file_path: "{{ redis_exporter_tls_dir_path }}/{{ redis_exporter_tls_server_certs_basename }}.key"
+redis_exporter_tls_server_cert_file_path: "{{ redis_exporter_tls_dir_path }}/{{ redis_exporter_tls_server_certs_basename }}.crt"
+redis_exporter_tls_server_csr_file_path: "{{ redis_exporter_tls_dir_path }}/{{ redis_exporter_tls_server_certs_basename }}.csr"
+redis_exporter_tls_server_ca_file_path: ""
+redis_exporter_tls_client_privkey_pass: "{{ redis_sensitive_credentials.redis.redis_exporter.privkey.password }}"
+
+# TODO: Pat attention on command format(config vs. config_secure)
+redis_exporter_user_info:
+  name: "monitor"
+  pass: "{{ redis_sensitive_credentials.redis.redis_exporter.acl_auth_pass }}"
+  enable: true
+  key_pattern: null
+  commands: "+@connection +memory -readonly +strlen +{{ redis_exporter_env_params.REDIS_EXPORTER_CONFIG_COMMAND }}|get +xinfo +pfcount -quit +zcard +type +xlen -readwrite -command +client -wait +scard +llen +hlen +arcount +get +eval +slowlog +cluster|info +cluster|slots +cluster|nodes -hello -echo +info +latency +scan -reset -auth -asking"
+
+redis_exporter_env_params:
+  REDIS_ADDR: "redis{{ 's' if redis_tls_enable else omit }}://{{ ansible_host }}:{{ redis_conf_options.tls_listen_port if redis_tls_enable else redis_listen_port }}"
+  REDIS_USER: "{{ redis_exporter_user_info.name }}"
+  REDIS_PASSWORD: "{{ redis_exporter_user_info.pass }}"
+  # REDIS_PASSWORD_FILE: "{{ redis_config_dir }}/users.acl"
+  REDIS_PASSWORD_FILE: ""
+  REDIS_EXPORTER_CHECK_KEYS: ""
+  REDIS_EXPORTER_CHECK_SINGLE_KEYS: ""
+  REDIS_EXPORTER_CHECK_STREAMS: ""
+  REDIS_EXPORTER_CHECK_SINGLE_STREAMS: ""
+  REDIS_EXPORTER_STREAMS_EXCLUDE_CONSUMER_METRICS: ""
+  REDIS_EXPORTER_CHECK_KEYS_BATCH_SIZE: ""
+  REDIS_EXPORTER_COUNT_KEYS: ""
+  REDIS_EXPORTER_SCRIPT: ""
+  REDIS_EXPORTER_LUA_SCRIPT_READ_ONLY: ""
+  REDIS_EXPORTER_DEBUG: "{{ 'true' if redis_exporter_debug_mode else 'false' }}"
+  REDIS_EXPORTER_LOG_LEVEL: "info"
+  REDIS_EXPORTER_LOG_FORMAT: "txt"
+  REDIS_EXPORTER_NAMESPACE: ""
+  REDIS_EXPORTER_CONNECTION_TIMEOUT: "10s"
+  REDIS_EXPORTER_WEB_LISTEN_ADDRESS: "{{ ansible_host }}:{{ redis_exporter_listen_port }}"
+  REDIS_EXPORTER_WEB_TELEMETRY_PATH: "/metrics"
+  REDIS_EXPORTER_REDIS_ONLY_METRICS: ""
+  REDIS_EXPORTER_INCLUDE_GO_RUNTIME_METRICS: "false"
+  REDIS_EXPORTER_INCL_CONFIG_METRICS: ""
+  REDIS_EXPORTER_INCL_SYSTEM_METRICS: "true"
+  REDIS_EXPORTER_INCL_RDB_FILE_SIZE_METRIC: "true"
+  REDIS_EXPORTER_INCL_MODULES_METRICS: ""
+  REDIS_EXPORTER_INCL_SEARCH_INDEXES_METRICS: ""
+  REDIS_EXPORTER_CHECK_SEARCH_INDEXES: ""
+  REDIS_EXPORTER_EXCLUDE_LATENCY_HISTOGRAM_METRICS: ""
+  REDIS_EXPORTER_REDACT_CONFIG_METRICS: ""
+  REDIS_EXPORTER_PING_ON_CONNECT: "true"
+  REDIS_EXPORTER_IS_TILE38: ""
+  REDIS_EXPORTER_IS_CLUSTER: "true"
+  REDIS_EXPORTER_CLUSTER_DISCOVER_HOSTNAMES: "false"
+  REDIS_EXPORTER_EXPORT_CLIENT_LIST: "false"
+  REDIS_EXPORTER_EXPORT_CLIENT_PORT: ""
+  REDIS_EXPORTER_SKIP_TLS_VERIFICATION: "true"
+  REDIS_EXPORTER_TLS_SERVER_NAME: ""
+  REDIS_EXPORTER_TLS_CLIENT_KEY_FILE: "{{ redis_exporter_tls_client_key_file_path if redis_tls_enable else omit }}"
+  REDIS_EXPORTER_TLS_CLIENT_CERT_FILE: "{{ redis_exporter_tls_client_cert_file_path if redis_tls_enable else omit }}"
+  REDIS_EXPORTER_TLS_SERVER_KEY_FILE: "{{ redis_exporter_tls_server_key_file_path if redis_exporter_use_tls else omit }}"
+  REDIS_EXPORTER_TLS_SERVER_CERT_FILE: "{{ redis_exporter_tls_server_cert_file_path if redis_exporter_use_tls else omit }}"
+  REDIS_EXPORTER_TLS_SERVER_CA_CERT_FILE: "{{ redis_exporter_tls_server_ca_file_path if redis_exporter_tls_server_ca_file_path != '' else omit }}"
+  REDIS_EXPORTER_TLS_SERVER_MIN_VERSION: ""
+  REDIS_EXPORTER_TLS_CA_CERT_FILE: "{{ redis_exporter_tls_root_ca_path if redis_exporter_use_tls else omit }}"
+  REDIS_EXPORTER_SET_CLIENT_NAME: "true"
+  REDIS_EXPORTER_CHECK_KEY_GROUPS: ""
+  REDIS_EXPORTER_MAX_DISTINCT_KEY_GROUPS: ""
+  REDIS_EXPORTER_CONFIG_COMMAND: >-
+    {{
+      (
+        redis_security_rename_commands
+        | selectattr('command', 'equalto', 'CONFIG')
+        | map(attribute='rename_to')
+        | first
+        | default('', true)
+      ) or 'CONFIG'
+    }}
+  REDIS_EXPORTER_BASIC_AUTH_USERNAME: "{{ redis_sensitive_credentials.redis.redis_exporter.basic_auth.username if redis_exporter_use_basic_http_auth else omit }}"
+  REDIS_EXPORTER_BASIC_AUTH_PASSWORD: "{{ redis_sensitive_credentials.redis.redis_exporter.basic_auth.password if (not redis_exporter_use_hash_pass and redis_exporter_use_basic_http_auth) else omit }}"
+  REDIS_EXPORTER_BASIC_AUTH_HASH_PASSWORD: "{{ redis_sensitive_credentials.redis.redis_exporter.basic_auth.password | password_hash(hashtype='bcrypt') if redis_exporter_use_basic_http_auth else omit }}"
+  REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT: "false"
+  REDIS_EXPORTER_INCL_METRICS_FOR_EMPTY_DATABASES: "true"
+  REDIS_EXPORTER_APPEND_INSTANCE_ROLE_LABEL: "true"
+
+######################################################################## End of Redis Exporter configuration
+
+######################################################################## Beginning of repos vars
+
+repos_appstream:
+  enable: true
+  priority: 3
+
+repos_baseos:
+  enable: true
+  priority: 3
+
+repos_crb:
+  enable: true
+  priority: 3
+
+repos_custom:
+  enable: false
+  priority: 4
+
+repos_epel:
+  enable: false
+  priority: 3
+
+repos_extras:
+  enable: true
+  priority: 3
+
+repos_redis:
+  enable: true
+  priority: 1
+
+######################################################################## End of repos vars

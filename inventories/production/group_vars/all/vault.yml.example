@@ -1,0 +1,64 @@
+# Here is the schema of what a vault file inside production inventory must look like:
+# Pay attention that all fields all required. They are all used across the project.
+
+vm_conn_info:
+  controller:
+    username: "<required>"
+    password: "<required>"
+  common:
+    username: "<required>"
+    password: "<required>"
+  servers_ip:
+    redis:
+      node_01: "<required>"
+      node_02: "<required>"
+      node_03: "<required>"
+      node_04: "<required>"
+      node_05: "<required>"
+      node_06: "<required>"
+    repo:
+      mirror: "<required>"
+      ftp: "<required>"
+
+production_info:
+
+  repos:
+    username: "<required>"
+    password: "<required>"
+
+  redis:
+    client:
+      username: "<required>"
+      password: "<required>"
+      admin:
+        username: "<required>"
+        password: "<required>"
+      default:
+        username: "<required>"
+        password: "<required>"
+      privkey:
+        password: "<optional>"
+    replica:
+      master_auth_pass: "<required>"
+    sentinel:
+      server_auth:
+        username: "<required>"
+        password: "<required>"
+      client_auth:
+        username: "<required>"
+        password: "<required>"
+      privkey:
+        password: "<optional>"
+    server:
+      privkey:
+        password: "<optional>"
+    root:
+      privkey:
+        password: "<optional>"
+    redis_exporter:
+      basic_auth:
+        username: "<required>"
+        password: "<required>"
+      privkey:
+        password: ""
+      acl_auth_pass: "<required>"

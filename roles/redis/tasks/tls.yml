@@ -1,0 +1,387 @@
+---
+# TLS configuration goes here
+
+- name: Make sure the dir {{ redis_cert_dir }} exists
+  ansible.builtin.file:
+    path: "{{ redis_cert_dir }}"
+    state: directory
+    owner: root
+    group: redis
+    mode: "0755"
+    seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+    serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+    setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+    selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+  when: redis_cert_dir is defined and redis_cert_dir != ""
+
+- name: Find & Delete all cert files located at project-level
+  run_once: true
+  tags: redis_cert_removal
+  block:
+    - name: Find all files in certs dir
+      ansible.builtin.find:
+        paths: "{{ redis_cert_dir }}"
+        file_type: file
+      register: found_certs
+
+    - name: Delete all cert files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ found_certs.files }}"
+
+    - name: Find all certs located on localhost/roles files
+      ansible.builtin.find:
+        path: "{{ role_path }}/files"
+        file_type: file
+      register: found_localhost_certs
+      delegate_to: localhost
+      connection: local
+      become: false
+
+    - name: Delete all certs located on localhost files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ found_localhost_certs.files }}"
+      delegate_to: localhost
+      connection: local
+      become: false
+
+- name: Make sure the package openssh-client exists for key generation
+  ansible.builtin.package:
+    name: openssh-client
+    state: present
+  register: openssl_install
+  delegate_to: localhost
+  connection: local
+  run_once: true
+
+- name: Ensure pip package cryptography exists
+  ansible.builtin.pip:
+    name:
+      - cryptography
+    state: present
+    executable: "{{ role_path | dirname | dirname }}/venv/bin/pip"
+    break_system_packages: false
+  register: pip_installation
+  delegate_to: localhost
+  connection: local
+  run_once: true
+
+- name: Generate a root key-pair on Ansible controller to sign new keys with
+  delegate_to: localhost
+  connection: local
+  become_user: hostvars['localhost'].ansible_user
+  run_once: true
+  when:
+    - openssl_install is success and pip_installation is success
+  block:
+    - name: Generate an OpenSSL private key as root key
+      community.crypto.openssl_privatekey:
+        path: "{{ role_path }}/files/root.key"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        passphrase: "{{ redis_tls_server_privkey_pass if redis_tls_server_privkey_pass != '' else omit }}"
+        state: present
+        size: 4096
+        format: pkcs8
+        type: Ed25519
+
+    - name: Generate an OpenSSL CSR as root CSR
+      community.crypto.openssl_csr:
+        path: "{{ role_path }}/files/root.csr"
+        privatekey_path: "{{ role_path }}/files/root.key"
+        privatekey_passphrase: "{{ redis_tls_server_privkey_pass if redis_tls_server_privkey_pass != '' else omit }}"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        basic_constraints_critical: true
+        basic_constraints:
+          - CA:TRUE
+        key_usage:
+          - keyCertSign
+          - cRLSign
+        key_usage_critical: true
+        common_name: "Redis Root CA"
+        country_name: "IR"
+        organization_name: "Ansiblization"
+        organizational_unit_name: "Automation Department"
+        state: present
+        email_address: "redis@example.com"
+        state_or_province_name: "TEH"
+        use_common_name_for_san: false
+        subject_alt_name:
+          - "DNS:redis.ansiblization.local"
+          - "IP:{{ hostvars['localhost'].ansible_default_ipv4.address }}"
+        subject_alt_name_critical: true
+
+    - name: Generate a Self Signed OpenSSL certificate.
+      community.crypto.x509_certificate:
+        path: "{{ role_path }}/files/root.crt"
+        mode: "0440"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        state: present
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        provider: selfsigned
+        privatekey_path: "{{ role_path }}/files/root.key"
+        privatekey_passphrase: "{{ redis_tls_root_privkey_pass if redis_tls_root_privkey_pass != '' else omit }}"
+        select_crypto_backend: cryptography
+        selfsigned_digest: sha512
+        selfsigned_not_after: +365d
+        selfsigned_not_before: "-1d"
+        csr_path: "{{ role_path }}/files/root.csr"
+
+- name: Generate a key-pair for each Redis node with its signing method
+  delegate_to: localhost
+  connection: local
+  become_user: hostvars['localhost'].ansible_user
+  when:
+    - openssl_install is success and pip_installation is success
+  block:
+    - name: Generate an OpenSSL private key as each Redis host's key
+      community.crypto.openssl_privatekey:
+        path: "{{ role_path }}/files/{{ inventory_hostname }}.key"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        passphrase: "{{ redis_tls_server_privkey_pass if redis_tls_server_privkey_pass != '' else omit }}"
+        state: present
+        size: 4096
+        format: pkcs8
+        type: Ed25519
+
+    - name: Generate an OpenSSL CSR for each Redis host
+      community.crypto.openssl_csr:
+        path: "{{ role_path }}/files/{{ inventory_hostname }}.csr"
+        privatekey_path: "{{ role_path }}/files/{{ inventory_hostname }}.key"
+        privatekey_passphrase: "{{ redis_tls_server_privkey_pass if redis_tls_server_privkey_pass != '' else omit }}"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        common_name: "{{ inventory_hostname }}.ansiblization.local"
+        country_name: "IR"
+        organization_name: "Ansiblization"
+        organizational_unit_name: "Automation Department"
+        state: present
+        email_address: "redis@example.com"
+        state_or_province_name: "TEH"
+        use_common_name_for_san: false
+        subject_alt_name:
+          - "DNS:{{ inventory_hostname }}.ansiblization.local"
+          - "IP:{{ ansible_ens33.ipv4.address }}"
+        subject_alt_name_critical: true
+
+    - name: Sign each Redis node's CSR with the root key-pair
+      community.crypto.x509_certificate:
+        path: "{{ role_path }}/files/{{ inventory_hostname }}.crt"
+        mode: "0440"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        state: present
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        provider: ownca
+        ownca_privatekey_path: "{{ role_path }}/files/root.key"
+        ownca_path: "{{ role_path }}/files/root.crt"
+        ownca_privatekey_passphrase: "{{ redis_tls_root_privkey_pass if redis_tls_root_privkey_pass != '' else omit }}"
+        ownca_not_before: "-1d"
+        ownca_not_after: "+3650d"
+        ownca_digest: "sha256"
+        csr_path: "{{ role_path }}/files/{{ inventory_hostname }}.csr"
+      register: sign_certificate
+
+- name: Spread relevant keys across desired Redis nodes
+  ansible.builtin.copy:
+    dest: "{{ redis_cert_dir }}/{{ redis_tls_server_files_basename_path | basename }}.{{ item | basename | split('.') | last }}"
+    src: "{{ item }}"
+    mode: "0440"
+    owner: "{{ redis_user }}"
+    group: "{{ redis_group }}"
+    seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+    serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+    setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+    selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+    remote_src: false
+  loop:
+    - "{{ role_path }}/files/{{ inventory_hostname }}.crt"
+    - "{{ role_path }}/files/{{ inventory_hostname }}.key"
+    - "{{ role_path }}/files/{{ inventory_hostname }}.csr"
+  when: sign_certificate is success
+
+- name: Create client key-pair to be signed by root key-pair
+  delegate_to: localhost
+  connection: local
+  become_user: hostvars['localhost'].ansible_user
+  run_once: true
+  when:
+    - groups.get("clients", []) | length > 0
+    - openssl_install is success and pip_installation is success
+  block:
+    - name: Generate an OpenSSL private key for client's hosts
+      community.crypto.openssl_privatekey:
+        path: "{{ role_path }}/files/{{ hostvars[item].inventory_hostname }}.key"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        passphrase: "{{ redis_tls_client_privkey_pass if redis_tls_client_privkey_pass != '' else omit }}"
+        state: present
+        size: 4096
+        format: pkcs8
+        type: Ed25519
+      loop: "{{ groups['clients'] }}"
+
+    - name: Generate an OpenSSL CSR for for client's hosts
+      community.crypto.openssl_csr:
+        path: "{{ role_path }}/files/{{ hostvars[item].inventory_hostname }}.csr"
+        privatekey_path: "{{ role_path }}/files/{{ hostvars[item].inventory_hostname }}.key"
+        privatekey_passphrase: "{{ redis_tls_client_privkey_pass if redis_tls_client_privkey_pass != '' else omit }}"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        common_name: "{{ item }}.ansiblization.local"
+        country_name: "IR"
+        organization_name: "BBDH"
+        organizational_unit_name: "Charging Department"
+        state: present
+        email_address: "a.zamirian@siz-tel.ir"
+        state_or_province_name: "TEH"
+        use_common_name_for_san: false
+        subject_alt_name:
+          - "DNS:{{ hostvars[item].inventory_hostname }}.ansiblization.local"
+          - "IP:{{ hostvars[item].ansible_ens33.ipv4.address }}"
+        subject_alt_name_critical: true
+      loop: "{{ groups['clients'] }}"
+
+    - name: Sign each client node's CSR with the root key-pair
+      community.crypto.x509_certificate:
+        path: "{{ role_path }}/files/{{ hostvars[item].inventory_hostname }}.crt"
+        mode: "0440"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        state: present
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        provider: ownca
+        ownca_privatekey_path: "{{ role_path }}/files/root.key"
+        ownca_path: "{{ role_path }}/files/root.crt"
+        ownca_privatekey_passphrase: "{{ redis_tls_root_privkey_pass if redis_tls_root_privkey_pass != '' else omit }}"
+        ownca_not_before: "-1d"
+        ownca_not_after: "+3650d"
+        ownca_digest: "sha256"
+        csr_path: "{{ role_path }}/files/{{ hostvars[item].inventory_hostname }}.csr"
+      loop: "{{ groups['clients'] }}"
+
+- name: Create client key-pair to be signed by root key-pair(on Ansible controller)
+  delegate_to: localhost
+  connection: local
+  become_user: hostvars['localhost'].ansible_user
+  run_once: true
+  when:
+    - openssl_install is success and pip_installation is success
+  block:
+    - name: Generate an OpenSSL private key for client's hosts
+      community.crypto.openssl_privatekey:
+        path: "{{ role_path }}/files/controller.key"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        passphrase: "{{ redis_tls_client_privkey_pass if redis_tls_client_privkey_pass != '' else omit }}"
+        state: present
+        size: 4096
+        format: pkcs8
+        type: Ed25519
+
+    - name: Generate an OpenSSL CSR for for client's hosts
+      community.crypto.openssl_csr:
+        path: "{{ role_path }}/files/controller.csr"
+        privatekey_path: "{{ role_path }}/files/controller.key"
+        privatekey_passphrase: "{{ redis_tls_client_privkey_pass if redis_tls_client_privkey_pass != '' else omit }}"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        mode: "0440"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        common_name: "controller.ansiblization.local"
+        country_name: "IR"
+        organization_name: "BBDH"
+        organizational_unit_name: "Charging Department"
+        state: present
+        email_address: "a.zamirian@siz-tel.ir"
+        state_or_province_name: "TEH"
+        subject_alt_name:
+          - "DNS:controller.ansiblization.local"
+          - "IP:{{ hostvars['localhost'].ansible_default_ipv4.address }}"
+        subject_alt_name_critical: true
+
+    - name: Sign each client node's CSR with the root key-pair
+      community.crypto.x509_certificate:
+        path: "{{ role_path }}/files/controller.crt"
+        mode: "0440"
+        owner: "{{ hostvars['localhost'].ansible_user }}"
+        group: "{{ hostvars['localhost'].ansible_user }}"
+        state: present
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+        provider: ownca
+        ownca_privatekey_path: "{{ role_path }}/files/root.key"
+        ownca_path: "{{ role_path }}/files/root.crt"
+        ownca_privatekey_passphrase: "{{ redis_tls_root_privkey_pass if redis_tls_root_privkey_pass != '' else omit }}"
+        ownca_not_before: "-1d"
+        ownca_not_after: "+3650d"
+        ownca_digest: "sha256"
+        csr_path: "{{ role_path }}/files/controller.csr"
+
+- name: Spread the root CA across all nodes
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/root.crt"
+    dest: "{{ redis_tls_root_ca_path }}"
+    mode: "0440"
+    owner: "{{ redis_user }}"
+    group: "{{ redis_group }}"
+    seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+    serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+    setype: "{{ 'cert_t' if ansible_selinux.status == 'enabled' else omit }}"
+    selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+    remote_src: false

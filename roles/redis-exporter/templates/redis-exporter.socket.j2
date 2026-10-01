@@ -1,0 +1,10 @@
+[Unit]
+Description=Redis Exporter
+PartOf=redis_exporter.service
+
+[Socket]
+ListenStream={{ redis_exporter_listen_port }}
+Accept=false
+
+[Install]
+WantedBy=sockets.target

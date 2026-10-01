@@ -1,0 +1,37 @@
+---
+
+- name: Download the tar redis exporter file
+  ansible.builtin.get_url:
+    url: "{{ redis_exporter_repo_url }}"
+    dest: "{{ redis_exporter_tar_destination }}"
+    mode: "0644"
+    validate_certs: false
+    url_username: "{{ repos_info.ftp.username if repos_info.ftp.auth_enabled else omit }}"
+    url_password: "{{ repos_info.ftp.password if repos_info.ftp.auth_enabled else omit }}"
+  register: redis_exporter_download
+  until: redis_exporter_download is succeeded
+  retries: 5
+  delay: 2
+
+- name: Unpack redis exporter binaries
+  ansible.builtin.unarchive:
+    src: "{{ redis_exporter_tar_destination }}"
+    dest: "{{ redis_exporter_unarchived_destination }}"
+    creates: "{{ redis_exporter_unarchived_destination }}/{{ redis_exporter_unarchived_package_dir }}"
+    remote_src: true
+  check_mode: false
+  ignore_errors: false
+
+- name: Propagate official redis exporter binaries
+  ansible.builtin.copy:
+    src: "{{ redis_exporter_unarchived_destination }}/{{ redis_exporter_unarchived_package_dir }}/redis_exporter"
+    dest: "{{ redis_exporter_bin_path }}"
+    mode: "0755"
+    owner: root
+    group: root
+    seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+    serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+    setype: "{{ 'bin_t' if ansible_selinux.status == 'enabled' else omit }}"
+    selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+    remote_src: true
+  ignore_errors: false

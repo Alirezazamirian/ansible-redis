@@ -1,0 +1,91 @@
+- name: Check if redis exporter log dir exists
+  ansible.builtin.stat:
+    path: "{{ redis_exporter_log_dir }}"
+  register: redis_exporter_log_dir_stat
+
+- name: Make sure redis exporter var dir exists
+  ansible.builtin.file:
+    path: "{{ redis_exporter_log_dir }}"
+    state: directory
+    owner: "{{ redis_exporter_system_user }}"
+    group: "{{ redis_exporter_system_group }}"
+    mode: "0755"
+    seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+    serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+    setype: "{{ 'var_log_t' if ansible_selinux.status == 'enabled' else omit }}"
+    selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+  when: not redis_exporter_log_dir_stat.stat.exists
+
+- name: Check and apply redis-exporter env file (if configured)
+  block:
+    - name: Check if redis-exporter.env.j2 exists
+      ansible.builtin.stat:
+        path: "{{ role_path }}/templates/redis-exporter.env.j2"
+      register: redis_exporter_env_template
+      delegate_to: localhost
+      become: false
+
+    - name: Apply env file for systemd service
+      ansible.builtin.template:
+        src: "redis-exporter.env.j2"
+        dest: "{{ redis_exporter_env_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'etc_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+      when: redis_exporter_env_template.stat.exists
+      no_log: true
+
+- name: Create & rendering redis-exporter systemd & socket templates
+  ignore_errors: false
+  vars:
+    redis_exporter_env_file_exists: "{{ redis_exporter_env_template.stat.exists }}"
+  block:
+    - name: Create systemd service unit
+      ansible.builtin.template:
+        src: redis-exporter.service.j2
+        dest: /etc/systemd/system/redis-exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'systemd_unit_file_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+
+    - name: Create systemd socket unit
+      ansible.builtin.template:
+        src: redis-exporter.socket.j2
+        dest: /etc/systemd/system/redis-exporter.socket
+        owner: root
+        group: root
+        mode: "0644"
+        seuser: "{{ 'system_u' if ansible_selinux.status == 'enabled' else omit }}"
+        serole: "{{ 'object_r' if ansible_selinux.status == 'enabled' else omit }}"
+        setype: "{{ 'systemd_unit_file_t' if ansible_selinux.status == 'enabled' else omit }}"
+        selevel: "{{ 's0' if ansible_selinux.status == 'enabled' else omit }}"
+
+- name: Import config action of Redis cluster
+  ansible.builtin.import_tasks:
+    file: "tls.yml"
+  when: redis_exporter_use_tls or redis_tls_enable
+
+- name: Start service & restart daemon
+  ansible.builtin.systemd:
+    name: redis-exporter
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Wait for port {{ redis_exporter_listen_port }} to become open on Redis Cluster's hosts
+  ansible.builtin.wait_for:
+    port: "{{ redis_exporter_listen_port }}"
+    host: "{{ ansible_host }}"
+    state: started
+    timeout: 120
+    delay: 10
+  ignore_errors: false
+  tags: redis-exporter-state

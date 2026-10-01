@@ -1,0 +1,52 @@
+---
+# tasks file for redis
+
+- name: Build Redis firewall port list
+  ansible.builtin.set_fact:
+    redis_firewall_ports: >-
+      {{
+        [
+          {'port': redis_listen_port, 'proto': 'tcp'}
+        ]
+        + ([{'port': redis_conf_options.tls_listen_port, 'proto': 'tcp'}]
+           if redis_tls_enable else [])
+        + ([{'port': redis_cluster_conf_options.cluster_listen_port, 'proto': 'tcp'}]
+           if groups['redis_cluster'] | length > 1 else [])
+        + ([{'port': redis_sentinel_listen_port, 'proto': 'tcp'}]
+           if redis_sentinel_enable else [])
+        + ([{'port': redis_sentinel_conf_options.tls_listen_port, 'proto': 'tcp'}]
+           if redis_sentinel_tls_enable and redis_sentinel_enable else [])
+        + ([{'port': redis_cluster_conf_options.cluster_tls_listen_port, 'proto': 'tcp'}]
+           if groups['redis_cluster'] | length > 1 and redis_cluster_conf_options.cluster_tls_enable else [])
+      }}
+
+- name: Build Redis SELinux port list
+  ansible.builtin.set_fact:
+    redis_firewall_selinux_port: >-
+      {{
+        redis_firewall_ports
+        | map('combine', {'type': 'redis_port_t'})
+        | list
+      }}
+
+- name: Add firewall role
+  ansible.builtin.include_role:
+    name: firewall
+  vars:
+    firewall_port: "{{ redis_firewall_ports }}"
+    firewall_selinux_port: "{{ redis_firewall_selinux_port }}"
+
+- name: Import installation from install.yml
+  ansible.builtin.import_tasks:
+    file: "install.yml"
+  tags: install_redis
+
+- name: Import Configuration from config.yml
+  ansible.builtin.import_tasks:
+    file: "config.yml"
+  tags: config_redis
+
+- name: Import Configuration from config.yml
+  ansible.builtin.import_tasks:
+    file: "cluster_creation.yml"
+  tags: setup_redis_cluster

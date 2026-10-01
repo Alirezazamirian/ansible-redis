@@ -1,0 +1,31 @@
+---
+
+- name: Include cacheable hosts' facts
+  ansible.builtin.import_playbook: "cache.yml"
+
+- name: Configure & apply local-repo files on all nodes
+  hosts: all
+  become: true
+  gather_facts: false
+  become_method: ansible.builtin.sudo
+  roles:
+    - role: repos
+
+- name: Install & Configure Redis Sharding Cluster
+  hosts: redis_cluster
+  become: true
+  become_method: ansible.builtin.sudo
+  any_errors_fatal: true
+  gather_facts: false
+  roles:
+    - role: redis
+
+- name: Install and Configure node exporter on all nodes
+  hosts: all
+  become: true
+  become_method: ansible.builtin.sudo
+  any_errors_fatal: true
+  gather_facts: false
+  tags: nodex_all
+  roles:
+    - role: redis-exporter

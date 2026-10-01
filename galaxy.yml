@@ -1,0 +1,17 @@
+namespace: sre
+name: ansible
+version: 1.0.0
+readme: README.md
+authors:
+  - Alireza Zamirian
+description: "Ansible collection for custom filters"
+license: 
+  - GPL-2.0-or-later
+tags:
+  - ansible
+  - redis-cluster
+  - redis-sharding-cluster
+  - redis-tls
+  - redis
+repository: https://github.com/Ansiblization/redis
+dependencies: {}

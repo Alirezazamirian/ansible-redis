@@ -1,0 +1,90 @@
+# Automated & Configured by Ansible
+
+protected-mode no
+
+port {{ redis_sentinel_listen_port }}
+daemonize yes
+pidfile /var/run/redis-sentinel.pid
+loglevel notice
+logfile {{ redis_sentinel_conf_options.log_file }}
+syslog-enabled {{ redis_sentinel_conf_options.syslog_enable }} 
+syslog-ident {{ redis_sentinel_conf_options.syslog_ident }}
+# syslog-facility local0
+sentinel announce-ip {{ ansible_host }}
+sentinel announce-port {{ redis_sentinel_listen_port }}
+dir {{ redis_working_dir }}
+
+{% set cluster = group_names | select('match', '^redis_slot_') | first %}
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+sentinel monitor {{ hostvars[host].inventory_hostname }} {{ hostvars[host].ansible_host }} {{ (groups[cluster] | length) -1 }}
+  {% endif %}
+{% endfor %}
+
+{% if redis_sentinel_client_auth_enable %}
+  {% for host in groups[cluster] %}
+    {% if hostvars[host].is_master %}
+sentinel auth-pass {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.client_auth_pass }}
+sentinel auth-user {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.client_auth_username }}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+sentinel down-after-milliseconds {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.be_down_after_ms }}
+  {% endif %}
+{% endfor %}
+
+acllog-max-len 128
+
+# aclfile /etc/redis/sentinel-users.acl
+# requirepass <password>
+
+{% if redis_sentinel_server_auth_enable %}
+sentinel sentinel-user {{ redis_sentinel_conf_options.server_auth_username }}
+sentinel sentinel-pass {{ redis_sentinel_conf_options.server_auth_pass }}
+{% endif %}
+
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+sentinel parallel-syncs {{ hostvars[host].inventory_hostname }} {{ (groups[cluster] | length) -1 if (groups[cluster] | length) >= 1 else "0" }}
+  {% endif %}
+{% endfor %}
+
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+sentinel failover-timeout {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.failover_timeout_ms }}
+  {% endif %}
+{% endfor %}
+
+{% if redis_sentinel_conf_options.notification_script %}
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+sentinel notification-script {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.notification_script }}
+  {% endif %}
+{% endfor %}
+{% endif %}
+
+{% if redis_sentinel_conf_options.client_reconfig_script %}
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+sentinel client-reconfig-script {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.client_reconfig_script }}
+  {% endif %}
+{% endfor %}
+{% endif %}
+
+sentinel deny-scripts-reconfig {{ 'yes' if redis_sentinel_conf_options.client_reconfig_script else 'no' }}
+SENTINEL resolve-hostnames {{ "yes" if hostvars.get("dns_server", "") is defined else "no" }}
+SENTINEL announce-hostnames {{ "yes" if hostvars.get("dns_server", "") is defined else "no" }}
+
+{% for host in groups[cluster] %}
+  {% if hostvars[host].is_master %}
+    {% if redis_sentinel_conf_options.master_reboot_down_after_ms %}
+SENTINEL master-reboot-down-after-period {{ hostvars[host].inventory_hostname }} {{ redis_sentinel_conf_options.master_reboot_down_after_ms }}
+    {% else %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+supervised auto
