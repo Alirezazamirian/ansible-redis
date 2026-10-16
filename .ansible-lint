@@ -1,0 +1,18 @@
+---
+exclude_paths:
+  - .cache/
+  - .git/
+  - venv/
+  - .venv/
+  - inventories/**/vault.yml
+  - roles/redis/files/
+  - roles/redis-exporter/files/
+
+skip_list:
+  - name[template]
+  - risky-shell-pipe
+
+warn_list:
+  - experimental
+  - yaml[line-length]
+
