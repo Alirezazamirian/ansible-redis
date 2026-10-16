@@ -100,7 +100,9 @@ test/units/.coverage.*
 changelogs/.plugin-cache.yaml
 .ansible-test-timeout.json
 # ansible logs
-logs/
+logs/*
+./*/logs/*
+./*/logs
 # roles binary files and docker images 
 roles/*/files/images
 roles/*/files/*.bin
@@ -108,16 +110,10 @@ roles/*/files/*.cnf
 roles/*/files/*.srl
 roles/*/files/*.key
 roles/*/files/*.crt
+roles/*/files/*.cert
 roles/*/files/*-keystore-cert-signed
 roles/*/files/*-keystore-cert
-roles/cbs-panel/files/charging-panel/node_modules
-roles/cbs-panel/files/charging-panel/build
-roles/cbs-panel/files/charging-panel/build.zip
-roles/cbs-panel/files/charging-panel/build*
-roles/crmui/files/source/node_modules
-roles/crmui/files/source/build
-roles/crmui/files/source/build.zip
-roles/crmui/files/source/build*
+# Vault
 *.vault
 *.vault*
 *.pass
@@ -130,6 +126,4 @@ vault.yaml
 .vault.*
 .vault*
 .vault
-logs/*
-./*/logs/*
-./*/logs
+
